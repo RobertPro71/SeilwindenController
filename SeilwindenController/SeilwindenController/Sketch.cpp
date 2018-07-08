@@ -19,7 +19,7 @@ struct ReceiverPPM{
   unsigned long TimePuls;
 	byte Pin; 
   PpmInputStatus Status;
-}
+};
 
 
 // LED Outputs
@@ -54,6 +54,8 @@ const byte Throttle = 1;
 ReceiverPPM PpmInput[2] = {{           0,           0,     1500, PpmInputSteering, Init},
                            {           0,           0,     1500, PpmInputThrottle, Init}};
 
+void HandlePpmInput( ReceiverPPM *Input);
+
 void setup() {
   // Config Serial
 	Serial.begin(9600);
@@ -82,13 +84,31 @@ void loop() {
 	}
 }
 
-void HandlePpmInput( PpmInput *Input)
+void HandlePpmInput( ReceiverPPM *Input)
 {
 	  switch (Input->Status)
 		{
-		  case Init : if(digitalRead(Input->Pin == LOW) Input->Status = WaitingPuls;
-			case WaitingPuls : ;
-			case MeasurePuls : ;
+		  case Init :
+			  if(digitalRead(Input->Pin == LOW))
+				{
+			    Input->Status = WaitingPuls;
+				}
+				break;
+			case WaitingPuls :
+			  if(digitalRead(Input->Pin == HIGH))
+ 				{
+					Input->Status = MeasurePuls;
+					Input->TimeStartPuls = micros();
+				}
+				break;
+			case MeasurePuls :
+				if(digitalRead(Input->Pin == LOW))
+				{
+					Input->Status = WaitingPuls;
+					Input->TimeEndPuls = micros();
+					Input->TimePuls = Input->TimeEndPuls - Input->TimeStartPuls;
+				};
+				break;
 		}
 
 }
