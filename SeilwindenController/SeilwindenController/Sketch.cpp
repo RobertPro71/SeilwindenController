@@ -1,25 +1,11 @@
 ﻿/*Begining of Auto generated code by Atmel studio */
 #include <Arduino.h>
+#include "Servo.h"
 /*End of auto generated code by Atmel studio */
 
 
 //Beginning of Auto generated function prototypes by Atmel Studio
 //End of Auto generated function prototypes by Atmel Studio
-
-enum PpmInputStatus {
-	Init = 0,
-	WaitingPuls,
-	MeasurePuls
-};
-
-
-struct ReceiverPPM{
-  unsigned long TimeStartPuls;
-  unsigned long TimeEndPuls;
-  unsigned long TimePuls;
-	byte Pin; 
-  PpmInputStatus Status;
-};
 
 
 // LED Outputs
@@ -50,15 +36,32 @@ const byte AdBatteryVoltage = A5;
 const byte Steering = 0;
 const byte Throttle = 1;
 
-//                         TimeStartPuls, TimeEndPuls, TimePuls,             Pin, Status
-ReceiverPPM PpmInput[2] = {{           0,           0,     1500, PpmInputSteering, Init},
-                           {           0,           0,     1500, PpmInputThrottle, Init}};
+const uint16_t MinServoPuls    =  800;
+const uint16_t MaxServoPuls    = 2200;
+const uint16_t CenterServoPuls = 1500;
 
-void HandlePpmInput( ReceiverPPM *Input);
+volatile uint32_t SteeringStartTime = 0;
+volatile uint32_t ThrottleStartTime = 0;
+
+volatile uint16_t SteeringTime = 0;
+volatile uint16_t ThrottleTime = 0;
+
+volatile bool SteeringReady = false;
+volatile bool ThrottleReady = false;
+
+bool SetOutput = false;
+unsigned long NextPulseTime;
+
+void ISR_Steering ( void );
+void ISR_Throttle ( void );
+
+Servo SteeringServo;
+Servo ThrottleServo;
 
 void setup() {
   // Config Serial
 	Serial.begin(9600);
+	Serial.print("Serial Ready");
 
   //Config PINs digital
 	pinMode(LedLowBatt, OUTPUT);
@@ -66,49 +69,74 @@ void setup() {
 	pinMode(LedNeutral, OUTPUT);
 	pinMode(LedReverse, OUTPUT);
 
-	pinMode(PpmInputSteering, INPUT_PULLUP);
-	pinMode(PpmInputThrottle, INPUT_PULLUP);
+	digitalWrite(LedLowBatt, HIGH);
+	digitalWrite(LedForward, HIGH);
+	digitalWrite(LedNeutral, HIGH);
+	digitalWrite(LedReverse, HIGH);
+
+  SteeringServo.attach(PpmInputSteering);
+//	ThrottleServo.attach(PpmInputThrottle);
+
 	pinMode(PpmOutputSteering, OUTPUT);
 	pinMode(PpmOutputThrottle, OUTPUT);
 
+  //Interrupt
+  attachInterrupt(digitalPinToInterrupt(PpmInputSteering), ISR_Steering, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(PpmInputThrottle), ISR_Throttle, CHANGE);
+
   //Config PINs analog
 	analogReference(DEFAULT);
-
 }
 
 void loop() {
-  //From Steering to Throttle
-  for(byte Idx = Steering; Idx <= Throttle; Idx++)
-  {
-    HandlePpmInput( &PpmInput[Idx] );
+
+	//Check if two Pulse are ok.
+  if(ThrottleReady)
+	{
+	  ThrottleServo.writeMicroseconds(ThrottleTime);
+		ThrottleReady = false;
+		Serial.print(".");
+	}  
+	
+	if(SteeringReady)
+	{
+		SteeringServo.writeMicroseconds(SteeringTime);
+		SteeringReady = false;
+		Serial.print("-");
 	}
 }
 
-void HandlePpmInput( ReceiverPPM *Input)
-{
-	  switch (Input->Status)
-		{
-		  case Init :
-			  if(digitalRead(Input->Pin == LOW))
-				{
-			    Input->Status = WaitingPuls;
-				}
-				break;
-			case WaitingPuls :
-			  if(digitalRead(Input->Pin == HIGH))
- 				{
-					Input->Status = MeasurePuls;
-					Input->TimeStartPuls = micros();
-				}
-				break;
-			case MeasurePuls :
-				if(digitalRead(Input->Pin == LOW))
-				{
-					Input->Status = WaitingPuls;
-					Input->TimeEndPuls = micros();
-					Input->TimePuls = Input->TimeEndPuls - Input->TimeStartPuls;
-				};
-				break;
-		}
 
+void ISR_Steering ( void )
+{
+  if(digitalRead(PpmInputSteering) == HIGH)
+	{
+    SteeringStartTime = micros();
+	}	
+	else
+	{
+		uint32_t TempTime = micros() - SteeringStartTime;
+		if ((TempTime > MinServoPuls) && (TempTime < MaxServoPuls))
+		{
+			SteeringTime = uint16_t(TempTime);
+			SteeringReady = true;
+		}
+	}
+}
+
+void ISR_Throttle ( void )
+{
+  if(digitalRead(PpmInputThrottle) == HIGH)
+  {
+	  ThrottleStartTime = micros();
+  }
+  else
+  {
+	  uint32_t TempTime = micros() - ThrottleStartTime;
+	  if ((TempTime > MinServoPuls) && (TempTime < MaxServoPuls))
+	  {
+		  ThrottleTime = uint16_t(TempTime);
+			ThrottleReady = true;
+	  }
+  }
 }
