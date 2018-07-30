@@ -7,6 +7,16 @@
 //Beginning of Auto generated function prototypes by Atmel Studio
 //End of Auto generated function prototypes by Atmel Studio
 
+/*
+Sender:    Maverick MTX-242
+Empfänger: Maverick MTX-242 
+
+Max Puls:          2,10ms
+Mitte mit Offset:  1,41ms
+Mitte ohne Offset: 1,49ms
+Min Puls:          0,94ms 
+
+*/
 
 // LED Outputs
 const byte LedLowBatt =  9;
@@ -40,8 +50,14 @@ const uint16_t MinServoPuls    =  800;
 const uint16_t MaxServoPuls    = 2200;
 const uint16_t CenterServoPuls = 1500;
 
-volatile uint32_t SteeringStartTime = 0;
-volatile uint32_t ThrottleStartTime = 0;
+const uint16_t FindNeutralTimer = 500;
+
+const uint16_t SteeringNeutralPosition = 1500;
+const uint16_t ThrottleNeutralPosition = 1700;
+const uint16_t EpsilonNeutralPosition  =  200;  // this value plus and minus
+
+volatile uint16_t SteeringCounter = 0;
+volatile uint16_t ThrottleCounter = 0;
 
 volatile uint16_t SteeringTime = 0;
 volatile uint16_t ThrottleTime = 0;
@@ -49,11 +65,18 @@ volatile uint16_t ThrottleTime = 0;
 volatile bool SteeringReady = false;
 volatile bool ThrottleReady = false;
 
-bool SetOutput = false;
-unsigned long NextPulseTime;
+uint32_t StartTimer;
+
+const uint8_t AdChannelCount = 5;
+
+uint8_t AdChannelArray[AdChannelCount] = {AdThrottleMax, AdThrottleMin, AdSteeringMax, AdSteeringCenter, AdSteeringMin};
+uint16_t AdValueArray[AdChannelCount] = {0, 0, 0, 0, 0};
+uint8_t NextAd = 0;
 
 void ISR_Steering ( void );
 void ISR_Throttle ( void );
+bool CeckPpmRange( uint16_t Value, uint16_t Min, uint16_t Max);
+bool CeckPpmRange( uint16_t Value, uint16_t CheckValue, uint16_t Epsilon);
 
 Servo SteeringServo;
 Servo ThrottleServo;
@@ -74,41 +97,65 @@ void setup() {
 	digitalWrite(LedNeutral, HIGH);
 	digitalWrite(LedReverse, HIGH);
 
-  SteeringServo.attach(PpmInputSteering);
-//	ThrottleServo.attach(PpmInputThrottle);
-
-	pinMode(PpmOutputSteering, OUTPUT);
-	pinMode(PpmOutputThrottle, OUTPUT);
-
-  //Interrupt
+  //Servo Outputs
+  SteeringServo.attach(PpmOutputSteering);
+	ThrottleServo.attach(PpmOutputThrottle);
+ 
+	//Interrupt
   attachInterrupt(digitalPinToInterrupt(PpmInputSteering), ISR_Steering, CHANGE);
   attachInterrupt(digitalPinToInterrupt(PpmInputThrottle), ISR_Throttle, CHANGE);
 
   //Config PINs analog
 	analogReference(DEFAULT);
+	
+	bool FindNetral = false;
+	
+// 	while(FindNetral == false)
+// 	{
+// 		if((SteeringTime < (SteeringNeutralPosition - EpsilonNeutralPosition)) &&	(SteeringTime > (SteeringNeutralPosition + EpsilonNeutralPosition)))
+// 		  
+// 	}
+	
+	
 }
 
 void loop() {
 
 	//Check if two Pulse are ok.
-  if(ThrottleReady)
+  if(ThrottleReady && SteeringReady)
 	{
 	  ThrottleServo.writeMicroseconds(ThrottleTime);
+		SteeringServo.writeMicroseconds(SteeringTime);
 		ThrottleReady = false;
-		Serial.print(".");
+		SteeringReady = false;
 	}  
 	
-	if(SteeringReady)
-	{
-		SteeringServo.writeMicroseconds(SteeringTime);
-		SteeringReady = false;
-		Serial.print("-");
-	}
+	//Every Loop get one AD Channel
+	AdValueArray[NextAd] = analogRead(AdArray[NextAd]);
+	NextAd++;
+	NextAd %= AdChannelCount;
+	
+	
+		
+}
+
+bool CeckPpmRange( uint16_t Value, uint16_t Min, uint16_t Max)
+{
+  if((Value >= Min) && (Value <= Max)) return true;
+	return false;
+}
+
+bool CeckPpmRange( uint16_t Value, uint16_t CheckValue, uint16_t Epsilon)
+{
+  if((Value >= (CheckValue - Epsilon)) && (Value <= (CheckValue + Epsilon))) return true;
+	return false;
 }
 
 
 void ISR_Steering ( void )
 {
+  static uint32_t SteeringStartTime;
+
   if(digitalRead(PpmInputSteering) == HIGH)
 	{
     SteeringStartTime = micros();
@@ -116,27 +163,32 @@ void ISR_Steering ( void )
 	else
 	{
 		uint32_t TempTime = micros() - SteeringStartTime;
-		if ((TempTime > MinServoPuls) && (TempTime < MaxServoPuls))
+		if (CeckPpmRange(TempTime, MinServoPuls, MaxServoPuls))
 		{
 			SteeringTime = uint16_t(TempTime);
 			SteeringReady = true;
+      SteeringCounter++;
 		}
 	}
 }
 
 void ISR_Throttle ( void )
 {
-  if(digitalRead(PpmInputThrottle) == HIGH)
+  static uint32_t ThrottleStartTime;
+  
+	if(digitalRead(PpmInputThrottle) == HIGH)
   {
 	  ThrottleStartTime = micros();
   }
   else
   {
 	  uint32_t TempTime = micros() - ThrottleStartTime;
-	  if ((TempTime > MinServoPuls) && (TempTime < MaxServoPuls))
+		if (CeckPpmRange(TempTime, MinServoPuls, MaxServoPuls))
 	  {
 		  ThrottleTime = uint16_t(TempTime);
 			ThrottleReady = true;
-	  }
+      ThrottleCounter++;
+		}
   }
 }
+
