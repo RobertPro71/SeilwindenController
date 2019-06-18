@@ -4,8 +4,6 @@
 /*End of auto generated code by Atmel studio */
 
 
-//Beginning of Auto generated function prototypes by Atmel Studio
-//End of Auto generated function prototypes by Atmel Studio
 
 /*
 Sender:    Maverick MTX-242
@@ -26,6 +24,10 @@ Min Puls:          0,96ms
 
 Throttle Channel 2
 
+
+The control channel from transmitter, knows three fixes portInputRegister
+   |---------------------|------------|
+max vorward            center       max reverse
 */
 
 // LED Outputs
@@ -63,7 +65,7 @@ const uint16_t CenterServoPuls = 1500;
 const uint16_t SteeringNeutralPosition = 1500;
 const uint16_t ThrottleNeutralPosition = 1500;
 const uint16_t EpsilonNeutralPosition  =   50;  // this value plus and minus
-const uint16_t ThrottleTippPosition    = 1700;
+const uint16_t ThrottleTippPosition    = 1700;  // to chnage the direktion of gear
 
 const uint16_t ThrottleTippDirektionChange =  4;
 const uint16_t ThrottleTippCenterChange    = 40;
@@ -114,6 +116,8 @@ void SetLED(uint8_t LedPos);
 
 Servo SteeringServo;
 Servo ThrottleServo;
+
+
 
 void setup() {
   // Config Serial
@@ -285,10 +289,14 @@ void ISR_Throttle ( void )
 // 	{
 // 		uint32_t TempTime = micros() - SteeringStartTime;
 // 		if (CeckPpmRange(TempTime, MinServoPuls, MaxServoPuls))
-// 		{
-// 			SteeringTime = uint16_t(TempTime);
-// 			SteeringReady = true;
+// 		{
+
+// 			SteeringTime = uint16_t(TempTime);
+
+// 			SteeringReady = true;
+
 // 			SteeringCounter++;
-// 		}
+// 		}
+
 // 	}
 // }
