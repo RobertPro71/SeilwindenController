@@ -16,6 +16,16 @@ Mitte mit Offset:  1,41ms
 Mitte ohne Offset: 1,49ms
 Min Puls:          0,94ms 
 
+Sender:    Tactic TTX300
+Empfänger: Tactic TR326
+
+Max Puls:          1,80ms
+Mitte mit Offset:  
+Mitte ohne Offset: 1,48ms
+Min Puls:          0,96ms
+
+Throttle Channel 2
+
 */
 
 // LED Outputs
@@ -31,8 +41,8 @@ const byte PpmOutputSteering = 5;
 const byte PpmOutputThrottle = 4;
 
 // AD Input Throttle
-const byte AdThrottleMax    = A0;
-const byte AdThrottleMin    = A1;
+const byte AdThrottleMin    = A0;
+const byte AdThrottleMax    = A1;
 
 // AD Input Steering
 const byte AdSteeringMax    = A4;
@@ -50,40 +60,64 @@ const uint16_t MinServoPuls    =  800;
 const uint16_t MaxServoPuls    = 2200;
 const uint16_t CenterServoPuls = 1500;
 
-const uint16_t FindNeutralTimer = 500;
-
 const uint16_t SteeringNeutralPosition = 1500;
-const uint16_t ThrottleNeutralPosition = 1700;
-const uint16_t EpsilonNeutralPosition  =  200;  // this value plus and minus
+const uint16_t ThrottleNeutralPosition = 1500;
+const uint16_t EpsilonNeutralPosition  =   50;  // this value plus and minus
+const uint16_t ThrottleTippPosition    = 1700;
 
-volatile uint16_t SteeringCounter = 0;
+const uint16_t ThrottleTippDirektionChange =  4;
+const uint16_t ThrottleTippCenterChange    = 40;
+
+
+enum{
+	SteeringPositionMax = 0,
+	SteeringPositionNull,
+	SteeringPositionMin
+	};
+
+enum{
+	PotiThrottleMax = 0,
+	PotiThrottleMin,
+	PotiSteeringMax,
+	PotiSteeringCenter,
+	PotiSteeringMin
+};
+//volatile uint16_t SteeringCounter = 0;
 volatile uint16_t ThrottleCounter = 0;
 
-volatile uint16_t SteeringTime = 0;
-volatile uint16_t ThrottleTime = 0;
+//volatile uint16_t SteeringTime = 0;
+volatile uint16_t ThrottleInputTime = 0;
+uint16_t ThrottleOutputTime = 1500;
 
-volatile bool SteeringReady = false;
+//volatile bool SteeringReady = false;
 volatile bool ThrottleReady = false;
+uint8_t FindCenterCount = 16;
 
 uint32_t StartTimer;
 
-const uint8_t AdChannelCount = 5;
+const uint8_t PotiChannelCount = 5;
 
-uint8_t AdChannelArray[AdChannelCount] = {AdThrottleMax, AdThrottleMin, AdSteeringMax, AdSteeringCenter, AdSteeringMin};
-uint16_t AdValueArray[AdChannelCount] = {0, 0, 0, 0, 0};
-uint8_t NextAd = 0;
+uint8_t PotiChannelArray[PotiChannelCount] = {AdThrottleMax, AdThrottleMin, AdSteeringMax, AdSteeringCenter, AdSteeringMin};
+uint16_t PotiValue[PotiChannelCount] = {512, 512, 512, 512, 512};
+uint8_t NextPoti = 0;
 
-void ISR_Steering ( void );
+uint8_t SteeringPosition = SteeringPositionNull;
+uint16_t SteeringOutputTime = SteeringNeutralPosition;
+bool RecallTipp = false;
+uint16_t TippCounter = 0;
+
+//void ISR_Steering ( void );
 void ISR_Throttle ( void );
-bool CeckPpmRange( uint16_t Value, uint16_t Min, uint16_t Max);
-bool CeckPpmRange( uint16_t Value, uint16_t CheckValue, uint16_t Epsilon);
+bool CeckPpmRangeMinMAx( uint16_t Value, uint16_t Min, uint16_t Max);
+bool CeckPpmRangeEpsilon( uint16_t Value, uint16_t CheckValue, uint16_t Epsilon);
+void SetLED(uint8_t LedPos);
 
 Servo SteeringServo;
 Servo ThrottleServo;
 
 void setup() {
   // Config Serial
-	Serial.begin(9600);
+	Serial.begin(19200);
 	Serial.print("Serial Ready");
 
   //Config PINs digital
@@ -94,7 +128,7 @@ void setup() {
 
 	digitalWrite(LedLowBatt, HIGH);
 	digitalWrite(LedForward, HIGH);
-	digitalWrite(LedNeutral, HIGH);
+	digitalWrite(LedNeutral, LOW);
 	digitalWrite(LedReverse, HIGH);
 
   //Servo Outputs
@@ -102,73 +136,120 @@ void setup() {
 	ThrottleServo.attach(PpmOutputThrottle);
  
 	//Interrupt
-  attachInterrupt(digitalPinToInterrupt(PpmInputSteering), ISR_Steering, CHANGE);
+  //attachInterrupt(digitalPinToInterrupt(PpmInputSteering), ISR_Steering, CHANGE);
   attachInterrupt(digitalPinToInterrupt(PpmInputThrottle), ISR_Throttle, CHANGE);
 
   //Config PINs analog
 	analogReference(DEFAULT);
-	
-	bool FindNetral = false;
-	
-// 	while(FindNetral == false)
-// 	{
-// 		if((SteeringTime < (SteeringNeutralPosition - EpsilonNeutralPosition)) &&	(SteeringTime > (SteeringNeutralPosition + EpsilonNeutralPosition)))
-// 		  
-// 	}
-	
 	
 }
 
 void loop() {
 
 	//Check if two Pulse are ok.
-  if(ThrottleReady && SteeringReady)
+  if(ThrottleReady)
 	{
-	  ThrottleServo.writeMicroseconds(ThrottleTime);
-		SteeringServo.writeMicroseconds(SteeringTime);
+		//Serial.print(".");
+
+    if (ThrottleInputTime > ThrottleTippPosition)
+    {
+  		TippCounter++;
+			if (TippCounter > ThrottleTippCenterChange)
+			{
+				SteeringPosition = SteeringPositionNull;
+				SetLED(SteeringPosition);
+			}
+			RecallTipp = true;
+    }
+		else
+		{
+		  if(RecallTipp == true)
+			{
+				if ((TippCounter > ThrottleTippDirektionChange) && (TippCounter < ThrottleTippCenterChange))
+				{
+					if(SteeringPosition == SteeringPositionMax) SteeringPosition = SteeringPositionMin;
+					else                                        SteeringPosition = SteeringPositionMax;
+				}
+				RecallTipp = false;
+				TippCounter = 0;
+				SetLED(SteeringPosition);
+			}
+			
+		}
+
+		switch ( SteeringPosition )
+		{
+			case SteeringPositionMax :
+			SteeringOutputTime = MaxServoPuls - PotiValue[PotiSteeringMax];
+			break;
+			case SteeringPositionNull :
+			SteeringOutputTime = CenterServoPuls +(PotiValue[PotiSteeringCenter] - 512);
+			break;
+			case SteeringPositionMin :
+			SteeringOutputTime = MinServoPuls + PotiValue[PotiSteeringMin];
+			break;
+		}
+		
+		uint16_t LimitThrottleInputTime = ThrottleInputTime;
+		if (LimitThrottleInputTime > ThrottleNeutralPosition) LimitThrottleInputTime = ThrottleNeutralPosition;
+		
+		Serial.print("Input: ");Serial.print(LimitThrottleInputTime);
+		Serial.print("  PotiMin: ");Serial.print(PotiValue[PotiThrottleMin]);
+		Serial.print("  PotiMax: ");Serial.print(PotiValue[PotiThrottleMax]);
+
+    uint16_t EngineStopPuls = CenterServoPuls + (PotiValue[PotiThrottleMin]);  // 1800ms 
+		uint16_t EngineFullPull = CenterServoPuls - (PotiValue[PotiThrottleMax]);  //  900ms
+
+		Serial.print("  Stop: ");Serial.print(EngineStopPuls);
+		Serial.print("  FP: ");Serial.print(EngineFullPull);
+		
+				
+		ThrottleOutputTime = map(LimitThrottleInputTime, MinServoPuls, CenterServoPuls, EngineFullPull, EngineStopPuls);
+
+		Serial.print("  Out: ");Serial.println(ThrottleOutputTime);
+				
+	  ThrottleServo.writeMicroseconds(ThrottleOutputTime);
+		SteeringServo.writeMicroseconds(SteeringOutputTime);
 		ThrottleReady = false;
-		SteeringReady = false;
 	}  
 	
 	//Every Loop get one AD Channel
-	AdValueArray[NextAd] = analogRead(AdArray[NextAd]);
-	NextAd++;
-	NextAd %= AdChannelCount;
-	
-	
-		
+	PotiValue[NextPoti] = analogRead(PotiChannelArray[NextPoti]);
+	NextPoti++;
+	NextPoti %= PotiChannelCount;
+	//Serial.print("+");
+
 }
 
-bool CeckPpmRange( uint16_t Value, uint16_t Min, uint16_t Max)
+bool CeckPpmRangeMinMAx( uint16_t Value, uint16_t Min, uint16_t Max)
 {
   if((Value >= Min) && (Value <= Max)) return true;
 	return false;
 }
 
-bool CeckPpmRange( uint16_t Value, uint16_t CheckValue, uint16_t Epsilon)
+bool CeckPpmRangeEpsilon( uint16_t Value, uint16_t CheckValue, uint16_t Epsilon)
 {
   if((Value >= (CheckValue - Epsilon)) && (Value <= (CheckValue + Epsilon))) return true;
 	return false;
 }
 
-
-void ISR_Steering ( void )
+void SetLED(uint8_t LedPos)
 {
-  static uint32_t SteeringStartTime;
+	digitalWrite(LedForward, HIGH);
+	digitalWrite(LedNeutral, HIGH);
+	digitalWrite(LedReverse, HIGH);
 
-  if(digitalRead(PpmInputSteering) == HIGH)
+  switch (LedPos)
 	{
-    SteeringStartTime = micros();
-	}	
-	else
-	{
-		uint32_t TempTime = micros() - SteeringStartTime;
-		if (CeckPpmRange(TempTime, MinServoPuls, MaxServoPuls))
-		{
-			SteeringTime = uint16_t(TempTime);
-			SteeringReady = true;
-      SteeringCounter++;
-		}
+	  case SteeringPositionMax :
+		  digitalWrite(LedForward, LOW);
+			break;
+	  case SteeringPositionNull :
+		  digitalWrite(LedNeutral, LOW);
+		  break;
+	  case SteeringPositionMin :
+		  digitalWrite(LedReverse, LOW);
+		  break;
 	}
 }
 
@@ -183,12 +264,31 @@ void ISR_Throttle ( void )
   else
   {
 	  uint32_t TempTime = micros() - ThrottleStartTime;
-		if (CeckPpmRange(TempTime, MinServoPuls, MaxServoPuls))
+		if (CeckPpmRangeMinMAx(TempTime, MinServoPuls, MaxServoPuls))
 	  {
-		  ThrottleTime = uint16_t(TempTime);
+		  ThrottleInputTime = uint16_t(TempTime);
 			ThrottleReady = true;
       ThrottleCounter++;
 		}
   }
 }
 
+// void ISR_Steering ( void )
+// {
+// 	static uint32_t SteeringStartTime;
+// 
+// 	if(digitalRead(PpmInputSteering) == HIGH)
+// 	{
+// 		SteeringStartTime = micros();
+// 	}
+// 	else
+// 	{
+// 		uint32_t TempTime = micros() - SteeringStartTime;
+// 		if (CeckPpmRange(TempTime, MinServoPuls, MaxServoPuls))
+// 		{
+// 			SteeringTime = uint16_t(TempTime);
+// 			SteeringReady = true;
+// 			SteeringCounter++;
+// 		}
+// 	}
+// }
