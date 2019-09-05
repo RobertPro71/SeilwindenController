@@ -84,8 +84,6 @@ enum{
 	PotiSteeringCenter,
 	PotiSteeringMin
 };
-//volatile uint16_t SteeringCounter = 0;
-volatile uint16_t ThrottleCounter = 0;
 
 //volatile uint16_t SteeringTime = 0;
 volatile uint16_t ThrottleInputTime = 0;
@@ -120,11 +118,12 @@ Servo ThrottleServo;
 
 
 void setup() {
-  // Config Serial
+	
+	// Config Serial
 	Serial.begin(19200);
 	Serial.print("Serial Ready");
 
-  //Config PINs digital
+	//Config PINs digital
 	pinMode(LedLowBatt, OUTPUT);
 	pinMode(LedForward, OUTPUT);
 	pinMode(LedNeutral, OUTPUT);
@@ -135,63 +134,70 @@ void setup() {
 	digitalWrite(LedNeutral, LOW);
 	digitalWrite(LedReverse, HIGH);
 
-  //Servo Outputs
-  SteeringServo.attach(PpmOutputSteering);
+	//Servo Outputs
+	SteeringServo.attach(PpmOutputSteering);
 	ThrottleServo.attach(PpmOutputThrottle);
  
 	//Interrupt
-  //attachInterrupt(digitalPinToInterrupt(PpmInputSteering), ISR_Steering, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(PpmInputThrottle), ISR_Throttle, CHANGE);
+	//attachInterrupt(digitalPinToInterrupt(PpmInputSteering), ISR_Steering, CHANGE);
+	attachInterrupt(digitalPinToInterrupt(PpmInputThrottle), ISR_Throttle, CHANGE);
 
-  //Config PINs analog
+	//Config PINs analog
 	analogReference(DEFAULT);
 	
 }
 
 void loop() {
 
-	//Check if two Pulse are ok.
-  if(ThrottleReady)
+	//New Pulse is received
+	if(ThrottleReady)
 	{
-		//Serial.print(".");
+		//Tipp position is to change the direktion
+		// short tipp = do nothing
+		// normal tipp = change direktion
+		// long tipp = neutral position
 
-    if (ThrottleInputTime > ThrottleTippPosition)
-    {
-  		TippCounter++;
+		if (ThrottleInputTime > ThrottleTippPosition)
+		{
+			TippCounter++; // Not fine but simple delay
+			//Long tipp
 			if (TippCounter > ThrottleTippCenterChange)
 			{
 				SteeringPosition = SteeringPositionNull;
 				SetLED(SteeringPosition);
 			}
 			RecallTipp = true;
-    }
+		}
 		else
 		{
-		  if(RecallTipp == true)
+			if(RecallTipp == true)
 			{
+				// normal tipp
 				if ((TippCounter > ThrottleTippDirektionChange) && (TippCounter < ThrottleTippCenterChange))
 				{
+					// change direktion
 					if(SteeringPosition == SteeringPositionMax) SteeringPosition = SteeringPositionMin;
 					else                                        SteeringPosition = SteeringPositionMax;
 				}
 				RecallTipp = false;
 				TippCounter = 0;
+				// set right led
 				SetLED(SteeringPosition);
 			}
 			
 		}
 
 		switch ( SteeringPosition )
-		{
+		{ToDo recalc values
 			case SteeringPositionMax :
-			SteeringOutputTime = MaxServoPuls - PotiValue[PotiSteeringMax];
-			break;
+				SteeringOutputTime = MaxServoPuls - PotiValue[PotiSteeringMax];
+				break;
 			case SteeringPositionNull :
-			SteeringOutputTime = CenterServoPuls +(PotiValue[PotiSteeringCenter] - 512);
-			break;
+				SteeringOutputTime = CenterServoPuls +(PotiValue[PotiSteeringCenter] - 512);
+				break;
 			case SteeringPositionMin :
-			SteeringOutputTime = MinServoPuls + PotiValue[PotiSteeringMin];
-			break;
+				SteeringOutputTime = MinServoPuls + PotiValue[PotiSteeringMin];
+				break;
 		}
 		
 		uint16_t LimitThrottleInputTime = ThrottleInputTime;
@@ -201,7 +207,7 @@ void loop() {
 		Serial.print("  PotiMin: ");Serial.print(PotiValue[PotiThrottleMin]);
 		Serial.print("  PotiMax: ");Serial.print(PotiValue[PotiThrottleMax]);
 
-    uint16_t EngineStopPuls = CenterServoPuls + (PotiValue[PotiThrottleMin]);  // 1800ms 
+		uint16_t EngineStopPuls = CenterServoPuls + (PotiValue[PotiThrottleMin]);  // 1800ms 
 		uint16_t EngineFullPull = CenterServoPuls - (PotiValue[PotiThrottleMax]);  //  900ms
 
 		Serial.print("  Stop: ");Serial.print(EngineStopPuls);
@@ -212,7 +218,7 @@ void loop() {
 
 		Serial.print("  Out: ");Serial.println(ThrottleOutputTime);
 				
-	  ThrottleServo.writeMicroseconds(ThrottleOutputTime);
+		ThrottleServo.writeMicroseconds(ThrottleOutputTime);
 		SteeringServo.writeMicroseconds(SteeringOutputTime);
 		ThrottleReady = false;
 	}  
@@ -261,20 +267,19 @@ void ISR_Throttle ( void )
 {
   static uint32_t ThrottleStartTime;
   
-	if(digitalRead(PpmInputThrottle) == HIGH)
-  {
-	  ThrottleStartTime = micros();
-  }
-  else
-  {
-	  uint32_t TempTime = micros() - ThrottleStartTime;
-		if (CeckPpmRangeMinMAx(TempTime, MinServoPuls, MaxServoPuls))
-	  {
-		  ThrottleInputTime = uint16_t(TempTime);
-			ThrottleReady = true;
-      ThrottleCounter++;
+	if(digitalRead(PpmInputThrottle) == HIGH) // Puls start
+	{
+		ThrottleStartTime = micros(); // Remembertime at start
+	}
+	else
+	{
+		uint32_t DeltaTime = micros() - ThrottleStartTime; // calculate length of pulse
+		if (CeckPpmRangeMinMAx(DeltaTime, MinServoPuls, MaxServoPuls))  // check pulse length
+		{
+			ThrottleInputTime = uint16_t(DeltaTime); //Transmit to main loop
+			ThrottleReady = true; //Mark a new value
 		}
-  }
+	}
 }
 
 // void ISR_Steering ( void )
